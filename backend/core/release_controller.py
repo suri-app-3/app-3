@@ -458,7 +458,7 @@ class ReleaseController:
                 dataset_name=f"release_{release_id}",
                 export_settings={},
                 task_type=task_type,
-                project_type="general"  # Could be enhanced to get from project settings
+                project_type="Object Detection"  # Could be enhanced to get from project settings
             )
             
             # Generate export files based on format

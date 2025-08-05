@@ -28,7 +28,7 @@ class ExportRequest(BaseModel):
     dataset_name: str = "dataset"
     export_settings: Optional[Dict[str, Any]] = None
     task_type: Optional[str] = "object_detection"  # object_detection, segmentation
-    project_type: Optional[str] = "general"  # general, medical, autonomous_driving, etc.
+    project_type: Optional[str] = "Object Detection"  # Object Detection, Image Classification, Instance Segmentation, etc.
 
 class ExportFormats:
     """Core export format implementations"""
@@ -38,7 +38,7 @@ class ExportFormats:
         """
         Intelligently select the optimal export format based on:
         - Task type (object_detection, segmentation)
-        - Project type (general, medical, autonomous_driving, etc.)
+        - Project type (Object Detection, Image Classification, Instance Segmentation)
         - Available annotation types (bbox, polygon)
         - User preference
         """
@@ -59,18 +59,18 @@ class ExportFormats:
         
         elif task_type == "object_detection":
             # Project type specific optimizations
-            if project_type == "autonomous_driving":
-                return "yolo_detection"  # Fast inference for real-time applications
-            elif project_type == "medical":
-                return "coco"  # More detailed annotations for medical precision
-            elif project_type == "research":
-                return "coco"  # Comprehensive format for research
-            else:
-                # General object detection
+            if project_type == "Object Detection":
                 if has_bboxes and not has_polygons:
                     return "yolo_detection"  # Optimal for pure bbox detection
                 else:
                     return "coco"  # Flexible format for mixed annotations
+            elif project_type == "Image Classification":
+                return "csv"  # Simple format for classification labels
+            elif project_type == "Instance Segmentation":
+                return "coco"  # Best format for instance segmentation
+            else:
+                # Default object detection
+                return "yolo_detection"
         
         # Default fallback
         return "coco"  # Most comprehensive and widely supported
