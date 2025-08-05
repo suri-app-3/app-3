@@ -27,9 +27,65 @@ class ExportRequest(BaseModel):
     include_images: bool = True
     dataset_name: str = "dataset"
     export_settings: Optional[Dict[str, Any]] = None
+    task_type: Optional[str] = "object_detection"  # object_detection, segmentation
+    project_type: Optional[str] = "general"  # general, medical, autonomous_driving, etc.
 
 class ExportFormats:
     """Core export format implementations"""
+    
+    @staticmethod
+    def select_optimal_format(task_type: str, project_type: str, annotations: List[Dict], user_format: str = None) -> str:
+        """
+        Intelligently select the optimal export format based on:
+        - Task type (object_detection, segmentation)
+        - Project type (general, medical, autonomous_driving, etc.)
+        - Available annotation types (bbox, polygon)
+        - User preference
+        """
+        # If user explicitly chose a format, respect it
+        if user_format and user_format != "auto":
+            return user_format
+        
+        # Analyze available annotations
+        has_polygons = any(ann.get('type') == 'polygon' and 'points' in ann for ann in annotations)
+        has_bboxes = any(ann.get('type') == 'bbox' or 'bbox' in ann for ann in annotations)
+        
+        # Task type based selection
+        if task_type == "segmentation":
+            if has_polygons:
+                return "yolo_segmentation"  # Best for polygon segmentation
+            else:
+                return "coco"  # COCO supports both detection and segmentation
+        
+        elif task_type == "object_detection":
+            # Project type specific optimizations
+            if project_type == "autonomous_driving":
+                return "yolo_detection"  # Fast inference for real-time applications
+            elif project_type == "medical":
+                return "coco"  # More detailed annotations for medical precision
+            elif project_type == "research":
+                return "coco"  # Comprehensive format for research
+            else:
+                # General object detection
+                if has_bboxes and not has_polygons:
+                    return "yolo_detection"  # Optimal for pure bbox detection
+                else:
+                    return "coco"  # Flexible format for mixed annotations
+        
+        # Default fallback
+        return "coco"  # Most comprehensive and widely supported
+    
+    @staticmethod
+    def get_export_method(format_name: str):
+        """Get the appropriate export method based on format name"""
+        format_methods = {
+            "coco": ExportFormats.export_coco,
+            "yolo_detection": ExportFormats.export_yolo_detection,
+            "yolo_segmentation": ExportFormats.export_yolo_segmentation,
+            "pascal_voc": ExportFormats.export_pascal_voc,
+            "csv": ExportFormats.export_csv
+        }
+        return format_methods.get(format_name.lower())
     
     @staticmethod
     def export_coco(data: ExportRequest) -> Dict[str, Any]:
@@ -406,57 +462,64 @@ task: segment  # for segmentation
 
 @router.post("/export")
 async def export_annotations(request: ExportRequest):
-    """Export annotations in specified format"""
+    """Export annotations in specified format with intelligent format selection"""
     try:
-        format_name = request.format.lower()
+        # Intelligently select optimal format based on task type and project type
+        optimal_format = ExportFormats.select_optimal_format(
+            task_type=request.task_type or "object_detection",
+            project_type=request.project_type or "general", 
+            annotations=request.annotations,
+            user_format=request.format if request.format != "auto" else None
+        )
         
-        if format_name == "coco":
-            data = ExportFormats.export_coco(request)
+        # Get the appropriate export method
+        export_method = ExportFormats.get_export_method(optimal_format)
+        if not export_method:
+            raise HTTPException(status_code=400, detail=f"Unsupported format: {optimal_format}")
+        
+        # Execute the export
+        if optimal_format == "coco":
+            data = export_method(request)
             return {
                 "success": True,
-                "format": "coco",
+                "format": optimal_format,
+                "selected_reason": f"Optimal for {request.task_type} + {request.project_type}",
                 "data": data,
                 "filename": f"{request.dataset_name}_coco.json"
             }
         
-        elif format_name in ["yolo", "yolo_detection"]:
-            files = ExportFormats.export_yolo_detection(request)
+        elif optimal_format in ["yolo_detection", "yolo_segmentation"]:
+            files = export_method(request)
             return {
                 "success": True,
-                "format": "yolo_detection",
+                "format": optimal_format,
+                "selected_reason": f"Optimal for {request.task_type} + {request.project_type}",
                 "files": files,
-                "filename": f"{request.dataset_name}_yolo_detection.zip"
+                "filename": f"{request.dataset_name}_{optimal_format}.zip"
             }
         
-        elif format_name == "yolo_segmentation":
-            files = ExportFormats.export_yolo_segmentation(request)
+        elif optimal_format == "csv":
+            data = export_method(request)
             return {
                 "success": True,
-                "format": "yolo_segmentation",
-                "files": files,
-                "filename": f"{request.dataset_name}_yolo_segmentation.zip"
-            }
-        
-        elif format_name == "csv":
-            data = ExportFormats.export_csv(request)
-            return {
-                "success": True,
-                "format": "csv",
+                "format": optimal_format,
+                "selected_reason": f"Optimal for {request.task_type} + {request.project_type}",
                 "data": data,
                 "filename": f"{request.dataset_name}.csv"
             }
         
-        elif format_name == "pascal_voc":
-            files = ExportFormats.export_pascal_voc(request)
+        elif optimal_format == "pascal_voc":
+            files = export_method(request)
             return {
                 "success": True,
-                "format": "pascal_voc",
+                "format": optimal_format,
+                "selected_reason": f"Optimal for {request.task_type} + {request.project_type}",
                 "files": files,
                 "filename": f"{request.dataset_name}_pascal_voc.zip"
             }
         
         else:
-            raise HTTPException(status_code=400, detail=f"Unsupported format: {format_name}")
+            raise HTTPException(status_code=400, detail=f"Unsupported format: {optimal_format}")
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")

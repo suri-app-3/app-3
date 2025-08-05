@@ -448,7 +448,7 @@ class ReleaseController:
             # Prepare export data from generation results
             export_data = self._prepare_export_data(generation_results, task_type)
             
-            # Create export request
+            # Create export request with task type and project type
             export_request = ExportRequest(
                 annotations=export_data['annotations'],
                 images=export_data['images'],
@@ -456,7 +456,9 @@ class ReleaseController:
                 format=export_format,
                 include_images=True,
                 dataset_name=f"release_{release_id}",
-                export_settings={}
+                export_settings={},
+                task_type=task_type,
+                project_type="general"  # Could be enhanced to get from project settings
             )
             
             # Generate export files based on format
