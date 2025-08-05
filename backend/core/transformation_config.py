@@ -204,6 +204,21 @@ RESIZE_HEIGHT_DEFAULT = 640
 RESIZE_UNIT = "pixels"
 RESIZE_DESCRIPTION = "Image dimensions in pixels"
 
+# CLAHE (Contrast Limited Adaptive Histogram Equalization) parameters
+CLAHE_CLIP_LIMIT_MIN = 1.0
+CLAHE_CLIP_LIMIT_MAX = 4.0
+CLAHE_CLIP_LIMIT_DEFAULT = 2.0
+CLAHE_CLIP_LIMIT_STEP = 0.1
+CLAHE_CLIP_LIMIT_UNIT = "threshold"
+CLAHE_CLIP_LIMIT_DESCRIPTION = "Contrast clipping threshold (higher = more contrast)"
+
+CLAHE_GRID_SIZE_MIN = 4
+CLAHE_GRID_SIZE_MAX = 16
+CLAHE_GRID_SIZE_DEFAULT = 8
+CLAHE_GRID_SIZE_STEP = 1
+CLAHE_GRID_SIZE_UNIT = "tiles"
+CLAHE_GRID_SIZE_DESCRIPTION = "Grid size for local histogram equalization"
+
 # =====================================================================
 # PHASE 3: UI ENHANCEMENT - Complete unit system
 # =====================================================================
@@ -328,6 +343,28 @@ def get_resize_parameters():
         'height_default': RESIZE_HEIGHT_DEFAULT,
         'unit': RESIZE_UNIT,
         'description': RESIZE_DESCRIPTION
+    }
+
+def get_clahe_clip_limit_parameters():
+    """Get CLAHE clip limit parameters for UI"""
+    return {
+        'min': CLAHE_CLIP_LIMIT_MIN,
+        'max': CLAHE_CLIP_LIMIT_MAX,
+        'default': CLAHE_CLIP_LIMIT_DEFAULT,
+        'step': CLAHE_CLIP_LIMIT_STEP,
+        'unit': CLAHE_CLIP_LIMIT_UNIT,
+        'description': CLAHE_CLIP_LIMIT_DESCRIPTION
+    }
+
+def get_clahe_grid_size_parameters():
+    """Get CLAHE grid size parameters for UI"""
+    return {
+        'min': CLAHE_GRID_SIZE_MIN,
+        'max': CLAHE_GRID_SIZE_MAX,
+        'default': CLAHE_GRID_SIZE_DEFAULT,
+        'step': CLAHE_GRID_SIZE_STEP,
+        'unit': CLAHE_GRID_SIZE_UNIT,
+        'description': CLAHE_GRID_SIZE_DESCRIPTION
     }
 
 # =====================================================================

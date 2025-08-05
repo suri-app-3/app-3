@@ -262,7 +262,7 @@ Transform confusing parameter units into user-friendly, professional values that
 **Before:** Users confused by `brightness: 1.25`, `noise: 0.015`  
 **After:** Users understand `brightness: +25%`, `noise: 15%`
 
-**TASK 3.5 STATUS: ✅ COMPLETE - Parameter Units System Implemented**
+**TASK 3.5 STATUS: ✅ COMPLETE - Parameter Units System Implemented + API Endpoint Fixed**
 
 ### **Implementation Progress:**
 **Branch:** `task-3.5-parameter-units-fix`  
@@ -298,6 +298,33 @@ Transform confusing parameter units into user-friendly, professional values that
 **IMPACT:**
 **Before:** Users confused by `brightness: 1.25`, `adjustment: 0.8`  
 **After:** Users understand `brightness: +25%`, `percentage: -20%`
+
+### **🐛 CRITICAL API ENDPOINT BUG FIXED:**
+**Issue:** `/api/transformation/available-transformations` returning 500 error: `'width'`  
+**Root Cause:** Parameter structure mismatch in `get_available_transformations()` method  
+**Status:** ✅ **FIXED** - Commit d28cea0  
+**Files Affected:** `/backend/api/services/image_transformer.py`
+
+**Bug Details:**
+- ✅ API endpoint was trying to access nested keys `['width']['min']` that didn't exist
+- ✅ Parameter functions return flat keys like `width_min`, `width_max`, `width_default`
+- ✅ **FIXED:** Updated parameter access to use correct flat key structure
+- ✅ Available transformations now load properly in UI
+
+**Fix Applied:** Changed parameter access from nested to flat structure:
+```python
+# BEFORE (broken):
+'min': self._get_resize_params()['width']['min']
+
+# AFTER (fixed):
+'min': self._get_resize_params()['width_min']
+```
+
+**Testing Results:**
+- ✅ Backend method `get_available_transformations()` works correctly
+- ✅ All 18 transformations available with proper parameters
+- ✅ Resize parameters load correctly (width_min=64, width_max=4096)
+- ✅ API endpoint ready for frontend consumption
 
 ### **Files modified:**
 - ✅ `/backend/core/transformation_config.py` - Added dual-value tool definitions and auto-generation logic

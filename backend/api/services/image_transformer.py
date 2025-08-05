@@ -24,7 +24,8 @@ from core.transformation_config import (
     get_brightness_parameters, get_contrast_parameters,
     get_blur_parameters, get_hue_parameters,
     get_saturation_parameters, get_gamma_parameters,
-    get_resize_parameters, get_noise_parameters
+    get_resize_parameters, get_noise_parameters,
+    get_clahe_clip_limit_parameters, get_clahe_grid_size_parameters
 )
 
 logger = logging.getLogger(__name__)
@@ -46,6 +47,8 @@ class ImageTransformer:
         self._get_gamma_params = get_gamma_parameters
         self._get_resize_params = get_resize_parameters
         self._get_noise_params = get_noise_parameters
+        self._get_clahe_clip_limit_params = get_clahe_clip_limit_parameters
+        self._get_clahe_grid_size_params = get_clahe_grid_size_parameters
         self.transformation_methods = {
             # Basic transformations
             'resize': self._apply_resize,
@@ -436,7 +439,15 @@ class ImageTransformer:
                 'name': 'Gamma Correction',
                 'category': 'advanced',
                 'parameters': {
-                    'gamma': {'type': 'float', 'min': 0.5, 'max': 2.0, 'default': 1.0}
+                    'gamma': {
+                        'type': 'float', 
+                        'min': self._get_gamma_params()['min'], 
+                        'max': self._get_gamma_params()['max'], 
+                        'default': self._get_gamma_params()['default'],
+                        'unit': self._get_gamma_params()['unit'],
+                        'step': self._get_gamma_params()['step'],
+                        'description': self._get_gamma_params()['description']
+                    }
                 }
             },
             'equalize': {
@@ -448,8 +459,24 @@ class ImageTransformer:
                 'name': 'CLAHE',
                 'category': 'advanced',
                 'parameters': {
-                    'clip_limit': {'type': 'float', 'min': 1.0, 'max': 4.0, 'default': 2.0},
-                    'grid_size': {'type': 'int', 'min': 4, 'max': 16, 'default': 8}
+                    'clip_limit': {
+                        'type': 'float', 
+                        'min': self._get_clahe_clip_limit_params()['min'], 
+                        'max': self._get_clahe_clip_limit_params()['max'], 
+                        'default': self._get_clahe_clip_limit_params()['default'],
+                        'unit': self._get_clahe_clip_limit_params()['unit'],
+                        'step': self._get_clahe_clip_limit_params()['step'],
+                        'description': self._get_clahe_clip_limit_params()['description']
+                    },
+                    'grid_size': {
+                        'type': 'int', 
+                        'min': self._get_clahe_grid_size_params()['min'], 
+                        'max': self._get_clahe_grid_size_params()['max'], 
+                        'default': self._get_clahe_grid_size_params()['default'],
+                        'unit': self._get_clahe_grid_size_params()['unit'],
+                        'step': self._get_clahe_grid_size_params()['step'],
+                        'description': self._get_clahe_grid_size_params()['description']
+                    }
                 }
             }
         }
