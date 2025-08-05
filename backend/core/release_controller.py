@@ -13,8 +13,8 @@ from datetime import datetime
 from pathlib import Path
 
 # Import our components
-from schema import TransformationSchema, create_schema_from_database, generate_release_configurations
-from image_generator import ImageAugmentationEngine, create_augmentation_engine, process_release_images
+from core.transformation_schema import TransformationSchema, create_schema_from_database, generate_release_configurations
+from core.image_generator import ImageAugmentationEngine, create_augmentation_engine, process_release_images
 from database.database import get_db
 from database.models import ImageTransformation, Release, Image, Dataset, Project
 from sqlalchemy.orm import Session

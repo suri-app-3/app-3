@@ -19,8 +19,8 @@ import logging
 # Import our new release system
 import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
-from release import ReleaseController, ReleaseConfig, create_release_controller
-from schema import generate_release_configurations
+from core.release_controller import ReleaseController, ReleaseConfig, create_release_controller
+from core.transformation_schema import generate_release_configurations
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 
