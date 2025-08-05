@@ -219,6 +219,21 @@ CLAHE_GRID_SIZE_STEP = 1
 CLAHE_GRID_SIZE_UNIT = "tiles"
 CLAHE_GRID_SIZE_DESCRIPTION = "Grid size for local histogram equalization"
 
+# Cutout parameters
+CUTOUT_NUM_HOLES_MIN = 1
+CUTOUT_NUM_HOLES_MAX = 5
+CUTOUT_NUM_HOLES_DEFAULT = 1
+CUTOUT_NUM_HOLES_STEP = 1
+CUTOUT_NUM_HOLES_UNIT = "holes"
+CUTOUT_NUM_HOLES_DESCRIPTION = "Number of rectangular holes to cut out"
+
+CUTOUT_HOLE_SIZE_MIN = 16
+CUTOUT_HOLE_SIZE_MAX = 64
+CUTOUT_HOLE_SIZE_DEFAULT = 32
+CUTOUT_HOLE_SIZE_STEP = 1
+CUTOUT_HOLE_SIZE_UNIT = "pixels"
+CUTOUT_HOLE_SIZE_DESCRIPTION = "Size of each cutout hole in pixels"
+
 # =====================================================================
 # PHASE 3: UI ENHANCEMENT - Complete unit system
 # =====================================================================
@@ -365,6 +380,28 @@ def get_clahe_grid_size_parameters():
         'step': CLAHE_GRID_SIZE_STEP,
         'unit': CLAHE_GRID_SIZE_UNIT,
         'description': CLAHE_GRID_SIZE_DESCRIPTION
+    }
+
+def get_cutout_num_holes_parameters():
+    """Get cutout num holes parameters for UI"""
+    return {
+        'min': CUTOUT_NUM_HOLES_MIN,
+        'max': CUTOUT_NUM_HOLES_MAX,
+        'default': CUTOUT_NUM_HOLES_DEFAULT,
+        'step': CUTOUT_NUM_HOLES_STEP,
+        'unit': CUTOUT_NUM_HOLES_UNIT,
+        'description': CUTOUT_NUM_HOLES_DESCRIPTION
+    }
+
+def get_cutout_hole_size_parameters():
+    """Get cutout hole size parameters for UI"""
+    return {
+        'min': CUTOUT_HOLE_SIZE_MIN,
+        'max': CUTOUT_HOLE_SIZE_MAX,
+        'default': CUTOUT_HOLE_SIZE_DEFAULT,
+        'step': CUTOUT_HOLE_SIZE_STEP,
+        'unit': CUTOUT_HOLE_SIZE_UNIT,
+        'description': CUTOUT_HOLE_SIZE_DESCRIPTION
     }
 
 # =====================================================================

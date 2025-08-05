@@ -25,7 +25,8 @@ from core.transformation_config import (
     get_blur_parameters, get_hue_parameters,
     get_saturation_parameters, get_gamma_parameters,
     get_resize_parameters, get_noise_parameters,
-    get_clahe_clip_limit_parameters, get_clahe_grid_size_parameters
+    get_clahe_clip_limit_parameters, get_clahe_grid_size_parameters,
+    get_cutout_num_holes_parameters, get_cutout_hole_size_parameters
 )
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,8 @@ class ImageTransformer:
         self._get_noise_params = get_noise_parameters
         self._get_clahe_clip_limit_params = get_clahe_clip_limit_parameters
         self._get_clahe_grid_size_params = get_clahe_grid_size_parameters
+        self._get_cutout_num_holes_params = get_cutout_num_holes_parameters
+        self._get_cutout_hole_size_params = get_cutout_hole_size_parameters
         self.transformation_methods = {
             # Basic transformations
             'resize': self._apply_resize,
@@ -339,8 +342,24 @@ class ImageTransformer:
                 'name': 'Cutout',
                 'category': 'advanced',
                 'parameters': {
-                    'num_holes': {'type': 'int', 'min': 1, 'max': 5, 'default': 1},
-                    'hole_size': {'type': 'int', 'min': 16, 'max': 64, 'default': 32}
+                    'num_holes': {
+                        'type': 'int', 
+                        'min': self._get_cutout_num_holes_params()['min'], 
+                        'max': self._get_cutout_num_holes_params()['max'], 
+                        'default': self._get_cutout_num_holes_params()['default'],
+                        'unit': self._get_cutout_num_holes_params()['unit'],
+                        'step': self._get_cutout_num_holes_params()['step'],
+                        'description': self._get_cutout_num_holes_params()['description']
+                    },
+                    'hole_size': {
+                        'type': 'int', 
+                        'min': self._get_cutout_hole_size_params()['min'], 
+                        'max': self._get_cutout_hole_size_params()['max'], 
+                        'default': self._get_cutout_hole_size_params()['default'],
+                        'unit': self._get_cutout_hole_size_params()['unit'],
+                        'step': self._get_cutout_hole_size_params()['step'],
+                        'description': self._get_cutout_hole_size_params()['description']
+                    }
                 }
             },
             'random_zoom': {
