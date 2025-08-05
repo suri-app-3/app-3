@@ -36,9 +36,10 @@ class ReleaseConfig:
     task_type: str = "object_detection"  # object_detection, segmentation
     images_per_original: int = 4
     sampling_strategy: str = "intelligent"
-    output_format: str = "jpg"
+    output_format: str = "original"  # original, jpg, png, webp, bmp, tiff
     include_original: bool = True
     split_sections: List[str] = None  # train, val, test - if None, includes all
+    preserve_original_splits: bool = True  # Always preserve original train/val/test assignments
 
 @dataclass
 class ReleaseProgress:

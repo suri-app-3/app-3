@@ -273,7 +273,7 @@ const ReleaseConfigPanel = ({ onGenerate, onPreview, transformations = [], selec
         baseImages,
         multiplier: values.multiplier,
         transformationsCount: transformations.length,
-        appliedTo: values.split,
+        appliedTo: "automatic (preserves original splits)",
         preserveAnnotations: true, // Always true now
         exportFormat: values.exportFormat,
         taskType: values.taskType,
@@ -330,9 +330,9 @@ const ReleaseConfigPanel = ({ onGenerate, onPreview, transformations = [], selec
         layout="vertical"
         initialValues={{ 
           multiplier: 5,
-          split: 'all',
           exportFormat: 'yolo_detection',
-          taskType: 'object_detection'
+          taskType: 'object_detection',
+          imageFormat: 'original'
         }}
       >
         <Row gutter={16}>
@@ -397,16 +397,15 @@ const ReleaseConfigPanel = ({ onGenerate, onPreview, transformations = [], selec
 
           <Col span={12}>
             <Form.Item
-              label="Apply to Split"
-              name="split"
-              tooltip="Which dataset split to apply transformations to"
+              label="Split Handling"
+              tooltip="Augmentation automatically preserves original dataset splits (train/val/test)"
             >
-              <Select>
-                <Option value="all">All Splits</Option>
-                <Option value="train">Train Only</Option>
-                <Option value="val">Validation Only</Option>
-                <Option value="test">Test Only</Option>
+              <Select disabled value="automatic">
+                <Option value="automatic">🎯 Automatic (Preserves Original Splits)</Option>
               </Select>
+              <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
+                ✅ Augmented images maintain their original train/val/test assignments
+              </div>
             </Form.Item>
           </Col>
         </Row>
