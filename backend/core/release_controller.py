@@ -19,6 +19,9 @@ from database.database import get_db
 from database.models import ImageTransformation, Release, Image, Dataset, Project
 from sqlalchemy.orm import Session
 
+# Import export system
+from api.routes.enhanced_export import ExportFormats, ExportRequest
+
 logger = logging.getLogger(__name__)
 
 @dataclass
@@ -28,7 +31,7 @@ class ReleaseConfig:
     description: str
     project_id: int
     dataset_ids: List[str]
-    export_format: str = "yolo"  # yolo, coco, pascal_voc
+    export_format: str = "yolo_detection"  # yolo_detection, yolo_segmentation, coco, pascal_voc, csv
     task_type: str = "object_detection"  # object_detection, segmentation
     images_per_original: int = 4
     sampling_strategy: str = "intelligent"
@@ -301,6 +304,28 @@ class ReleaseController:
             transformation_ids = [t["id"] for t in transformation_records]
             self.mark_transformations_completed(transformation_ids, release_id)
             
+            # Intelligently select export format based on task type and annotations
+            optimal_export_format = self._select_optimal_export_format(
+                all_results, 
+                config.export_format, 
+                config.task_type if hasattr(config, 'task_type') else 'object_detection'
+            )
+            
+            # Generate export files with transformed annotations
+            export_path = self._generate_export_files(
+                release_id, 
+                all_results, 
+                optimal_export_format,
+                config.task_type if hasattr(config, 'task_type') else 'object_detection'
+            )
+            
+            # Update release with export path and format
+            if release and export_path:
+                release.model_path = export_path
+                release.export_format = optimal_export_format
+                release.task_type = config.task_type if hasattr(config, 'task_type') else 'object_detection'
+                self.db.commit()
+            
             # Update final progress
             self.update_release_progress(
                 release_id,
@@ -310,7 +335,7 @@ class ReleaseController:
                 completed_at=datetime.utcnow()
             )
             
-            logger.info(f"Successfully generated release {release_id}")
+            logger.info(f"Successfully generated release {release_id} with export at {export_path}")
             return release_id
             
         except Exception as e:
@@ -347,6 +372,253 @@ class ReleaseController:
         
         # Return original path if not found
         return relative_path
+    
+    def _select_optimal_export_format(self, generation_results: Dict[str, List[Dict]], 
+                                     user_format: str, task_type: str) -> str:
+        """
+        Intelligently select the optimal export format based on:
+        - Task type (object_detection vs segmentation)
+        - Available annotation types (bbox vs polygons)
+        - User preference
+        - Project requirements
+        """
+        # If user explicitly chose a format, respect it
+        if user_format and user_format != "auto":
+            logger.info(f"Using user-selected export format: {user_format}")
+            return user_format
+        
+        # Analyze available annotations to determine best format
+        has_polygons = False
+        has_bboxes = False
+        
+        for original_image, results in generation_results.items():
+            for result in results:
+                if 'annotations' in result:
+                    for ann in result['annotations']:
+                        if ann.get('type') == 'polygon' and 'points' in ann:
+                            has_polygons = True
+                        elif ann.get('type') == 'bbox' or 'bbox' in ann:
+                            has_bboxes = True
+        
+        # Smart format selection logic
+        if task_type == "segmentation":
+            if has_polygons:
+                optimal_format = "yolo_segmentation"
+                reason = "Task requires segmentation and polygons are available"
+            else:
+                optimal_format = "coco"
+                reason = "Task requires segmentation but only bboxes available - COCO supports both"
+        
+        elif task_type == "object_detection":
+            if has_bboxes and not has_polygons:
+                optimal_format = "yolo_detection"
+                reason = "Task is detection and bboxes are available"
+            elif has_polygons:
+                optimal_format = "coco"
+                reason = "Task is detection but polygons available - COCO supports both"
+            else:
+                optimal_format = "yolo_detection"
+                reason = "Task is detection - defaulting to YOLO Detection"
+        
+        else:
+            # Unknown task type - use COCO as it's most flexible
+            optimal_format = "coco"
+            reason = "Unknown task type - using flexible COCO format"
+        
+        logger.info(f"Intelligently selected export format: {optimal_format} ({reason})")
+        return optimal_format
+    
+    def _generate_export_files(self, release_id: int, generation_results: Dict[str, List[Dict]], 
+                              export_format: str, task_type: str) -> Optional[str]:
+        """
+        Generate export files with transformed annotations
+        
+        Args:
+            release_id: Release ID
+            generation_results: Results from image generation with annotations
+            export_format: Export format (yolo_detection, yolo_segmentation, coco, etc.)
+            task_type: Task type (object_detection, segmentation)
+        
+        Returns:
+            Path to generated export files
+        """
+        try:
+            logger.info(f"Generating export files for release {release_id} in format {export_format}")
+            
+            # Prepare export data from generation results
+            export_data = self._prepare_export_data(generation_results, task_type)
+            
+            # Create export request
+            export_request = ExportRequest(
+                annotations=export_data['annotations'],
+                images=export_data['images'],
+                classes=export_data['classes'],
+                format=export_format,
+                include_images=True,
+                dataset_name=f"release_{release_id}",
+                export_settings={}
+            )
+            
+            # Generate export files based on format
+            export_path = self._create_export_files(export_request, release_id)
+            
+            logger.info(f"Successfully generated export files at {export_path}")
+            return export_path
+            
+        except Exception as e:
+            logger.error(f"Failed to generate export files for release {release_id}: {str(e)}")
+            return None
+    
+    def _prepare_export_data(self, generation_results: Dict[str, List[Dict]], task_type: str) -> Dict[str, Any]:
+        """
+        Prepare export data from generation results with transformed annotations
+        """
+        images = []
+        annotations = []
+        classes_set = set()
+        annotation_id = 1
+        
+        for original_image, results in generation_results.items():
+            for result in results:
+                # Extract image info
+                image_info = {
+                    'id': len(images),
+                    'name': result.get('output_filename', f"image_{len(images)}.jpg"),
+                    'width': result.get('image_width', 640),
+                    'height': result.get('image_height', 480),
+                    'file_path': result.get('output_path', '')
+                }
+                images.append(image_info)
+                
+                # Extract transformed annotations
+                if 'annotations' in result:
+                    for ann in result['annotations']:
+                        # Add class to set
+                        class_name = ann.get('class_name', 'unknown')
+                        classes_set.add(class_name)
+                        
+                        # Create annotation entry
+                        annotation = {
+                            'id': annotation_id,
+                            'image_id': image_info['id'],
+                            'class_id': ann.get('class_id', 0),
+                            'class_name': class_name,
+                            'type': ann.get('type', 'bbox'),
+                            'confidence': ann.get('confidence', 1.0)
+                        }
+                        
+                        # Add geometry based on type
+                        if ann.get('type') == 'polygon' and 'points' in ann:
+                            annotation['points'] = ann['points']
+                        elif 'bbox' in ann:
+                            annotation['bbox'] = ann['bbox']
+                        
+                        annotations.append(annotation)
+                        annotation_id += 1
+        
+        # Create classes list with unified IDs
+        classes = []
+        for i, class_name in enumerate(sorted(classes_set)):
+            classes.append({
+                'id': i,
+                'name': class_name,
+                'supercategory': 'object'
+            })
+        
+        # Update class IDs in annotations to match unified classes
+        class_name_to_id = {cls['name']: cls['id'] for cls in classes}
+        for ann in annotations:
+            ann['class_id'] = class_name_to_id.get(ann['class_name'], 0)
+        
+        return {
+            'images': images,
+            'annotations': annotations,
+            'classes': classes
+        }
+    
+    def _create_export_files(self, export_request: ExportRequest, release_id: int) -> str:
+        """
+        Create export files using the export system
+        """
+        import tempfile
+        import zipfile
+        import shutil
+        
+        # Create temporary directory for export
+        temp_dir = tempfile.mkdtemp(prefix=f"release_{release_id}_")
+        export_dir = os.path.join(temp_dir, f"release_{release_id}_export")
+        os.makedirs(export_dir, exist_ok=True)
+        
+        try:
+            # Generate export files based on format
+            if export_request.format in ['yolo_detection', 'yolo_segmentation']:
+                files = ExportFormats.export_yolo_detection(export_request) if export_request.format == 'yolo_detection' else ExportFormats.export_yolo_segmentation(export_request)
+                
+                # Write YOLO files
+                for filename, content in files.items():
+                    file_path = os.path.join(export_dir, filename)
+                    with open(file_path, 'w') as f:
+                        f.write(content)
+                        
+            elif export_request.format == 'coco':
+                coco_data = ExportFormats.export_coco(export_request)
+                
+                # Write COCO JSON
+                coco_path = os.path.join(export_dir, 'annotations.json')
+                with open(coco_path, 'w') as f:
+                    json.dump(coco_data, f, indent=2)
+                    
+            elif export_request.format == 'pascal_voc':
+                xml_files = ExportFormats.export_pascal_voc(export_request)
+                
+                # Write Pascal VOC XML files
+                for filename, xml_content in xml_files.items():
+                    file_path = os.path.join(export_dir, filename)
+                    with open(file_path, 'w') as f:
+                        f.write(xml_content)
+                        
+            elif export_request.format == 'csv':
+                csv_content = ExportFormats.export_csv(export_request)
+                
+                # Write CSV file
+                csv_path = os.path.join(export_dir, 'annotations.csv')
+                with open(csv_path, 'w') as f:
+                    f.write(csv_content)
+            
+            # Copy images if requested
+            if export_request.include_images:
+                images_dir = os.path.join(export_dir, 'images')
+                os.makedirs(images_dir, exist_ok=True)
+                
+                for img in export_request.images:
+                    src_path = img.get('file_path', '')
+                    if src_path and os.path.exists(src_path):
+                        dst_path = os.path.join(images_dir, img['name'])
+                        shutil.copy2(src_path, dst_path)
+            
+            # Create final export directory in releases
+            final_export_dir = os.path.join("releases", f"release_{release_id}", "export")
+            os.makedirs(final_export_dir, exist_ok=True)
+            
+            # Move export files to final location
+            for item in os.listdir(export_dir):
+                src = os.path.join(export_dir, item)
+                dst = os.path.join(final_export_dir, item)
+                if os.path.isdir(src):
+                    shutil.copytree(src, dst, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(src, dst)
+            
+            # Clean up temp directory
+            shutil.rmtree(temp_dir)
+            
+            return final_export_dir
+            
+        except Exception as e:
+            # Clean up on error
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
+            raise e
     
     def get_release_progress(self, release_id: str) -> Optional[ReleaseProgress]:
         """Get current progress for a release"""
