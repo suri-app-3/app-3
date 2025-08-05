@@ -113,16 +113,16 @@ class ImageTransformer:
                 'parameters': {
                     'width': {
                         'type': 'int', 
-                        'min': self._get_resize_params()['width']['min'], 
-                        'max': self._get_resize_params()['width']['max'], 
-                        'default': self._get_resize_params()['width']['default'], 
+                        'min': self._get_resize_params()['width_min'], 
+                        'max': self._get_resize_params()['width_max'], 
+                        'default': self._get_resize_params()['width_default'], 
                         'placeholder': 'Width (e.g. 640)'
                     },
                     'height': {
                         'type': 'int', 
-                        'min': self._get_resize_params()['height']['min'], 
-                        'max': self._get_resize_params()['height']['max'], 
-                        'default': self._get_resize_params()['height']['default'], 
+                        'min': self._get_resize_params()['height_min'], 
+                        'max': self._get_resize_params()['height_max'], 
+                        'default': self._get_resize_params()['height_default'], 
                         'placeholder': 'Height (e.g. 640)'
                     },
                     'resize_mode': {
