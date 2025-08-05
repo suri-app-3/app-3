@@ -38,6 +38,7 @@ class ReleaseConfig:
     sampling_strategy: str = "intelligent"
     output_format: str = "jpg"
     include_original: bool = True
+    split_sections: List[str] = None  # train, val, test - if None, includes all
 
 @dataclass
 class ReleaseProgress:
@@ -127,21 +128,31 @@ class ReleaseController:
             logger.error(f"Failed to load pending transformations: {str(e)}")
             return []
     
-    def get_dataset_images(self, dataset_ids: List[str]) -> List[Dict[str, Any]]:
+    def get_dataset_images(self, dataset_ids: List[str], split_sections: List[str] = None) -> List[Dict[str, Any]]:
         """
         Get all images from specified datasets with enhanced multi-dataset support
         
         Handles multiple dataset paths like:
         - projects/gevis/dataset/animal/train/
-        - projects/gevis/dataset/car_dataset/train/
-        - projects/gevis/dataset/RAKESH/train/
+        - projects/gevis/dataset/car_dataset/val/
+        - projects/gevis/dataset/RAKESH/test/
+        
+        Args:
+            dataset_ids: List of dataset IDs to include
+            split_sections: List of split sections to include (train, val, test). If None, includes all.
         """
         try:
-            # Get images from all specified datasets
-            images = self.db.query(Image).filter(
+            # Build query for images from specified datasets
+            query = self.db.query(Image).filter(
                 Image.dataset_id.in_(dataset_ids),
                 Image.split_type == "dataset"  # Only get images in dataset section
-            ).all()
+            )
+            
+            # Filter by split sections if specified
+            if split_sections:
+                query = query.filter(Image.split_section.in_(split_sections))
+            
+            images = query.all()
             
             # Also get dataset information for path handling
             datasets = self.db.query(Dataset).filter(Dataset.id.in_(dataset_ids)).all()
@@ -149,16 +160,23 @@ class ReleaseController:
             
             image_records = []
             dataset_stats = {}
+            split_stats = {}
             
             for image in images:
                 # Get dataset info
                 dataset = dataset_info.get(image.dataset_id)
                 dataset_name = dataset.name if dataset else f"dataset_{image.dataset_id}"
+                split_section = image.split_section or "train"
                 
                 # Track dataset statistics
                 if dataset_name not in dataset_stats:
                     dataset_stats[dataset_name] = 0
                 dataset_stats[dataset_name] += 1
+                
+                # Track split section statistics
+                if split_section not in split_stats:
+                    split_stats[split_section] = 0
+                split_stats[split_section] += 1
                 
                 record = {
                     "id": image.id,
@@ -166,7 +184,7 @@ class ReleaseController:
                     "file_path": image.file_path,
                     "dataset_id": image.dataset_id,
                     "dataset_name": dataset_name,
-                    "split_section": image.split_section or "train",
+                    "split_section": split_section,
                     "width": image.width,
                     "height": image.height,
                     "source_path": self._get_source_dataset_path(image.file_path, dataset_name)
@@ -175,8 +193,16 @@ class ReleaseController:
             
             logger.info(f"📊 MULTI-DATASET LOADING COMPLETE:")
             logger.info(f"   Total images: {len(image_records)}")
+            logger.info(f"   📁 Dataset breakdown:")
             for dataset_name, count in dataset_stats.items():
-                logger.info(f"   {dataset_name}: {count} images")
+                logger.info(f"      {dataset_name}: {count} images")
+            logger.info(f"   🎯 Split breakdown:")
+            for split_name, count in split_stats.items():
+                logger.info(f"      {split_name}: {count} images")
+            if split_sections:
+                logger.info(f"   🔍 Filtered by splits: {split_sections}")
+            else:
+                logger.info(f"   🔍 Including all splits: train, val, test")
             
             return image_records
             
@@ -190,7 +216,8 @@ class ReleaseController:
         
         Examples:
         - projects/gevis/dataset/animal/train/image.jpg → projects/gevis/dataset/animal/
-        - projects/gevis/dataset/car_dataset/train/image.jpg → projects/gevis/dataset/car_dataset/
+        - projects/gevis/dataset/car_dataset/val/image.jpg → projects/gevis/dataset/car_dataset/
+        - projects/gevis/dataset/RAKESH/test/image.jpg → projects/gevis/dataset/RAKESH/
         """
         try:
             path_parts = Path(file_path).parts
@@ -284,8 +311,8 @@ class ReleaseController:
             if not transformation_records:
                 raise ValueError(f"No pending transformations found for version {release_version}")
             
-            # Get dataset images
-            image_records = self.get_dataset_images(config.dataset_ids)
+            # Get dataset images with split section filtering
+            image_records = self.get_dataset_images(config.dataset_ids, config.split_sections)
             if not image_records:
                 raise ValueError(f"No images found in datasets: {config.dataset_ids}")
             
