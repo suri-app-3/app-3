@@ -84,14 +84,75 @@ class ImageAugmentationEngine:
         except Exception as e:
             raise ValueError(f"Failed to load image {image_path}: {str(e)}")
     
+    def _save_image_with_format(self, image: Image.Image, output_path: Path, output_format: str) -> None:
+        """
+        Save image with proper format conversion
+        
+        Args:
+            image: PIL Image to save
+            output_path: Output file path
+            output_format: Target format (original, jpg, png, webp, bmp, tiff)
+        """
+        try:
+            if output_format.lower() == "original":
+                # Keep original format - save as-is
+                image.save(output_path, quality=95, optimize=True)
+            elif output_format.lower() in ["jpg", "jpeg"]:
+                # Convert to RGB for JPEG (no transparency)
+                if image.mode in ("RGBA", "LA", "P"):
+                    # Create white background for transparent images
+                    background = Image.new("RGB", image.size, (255, 255, 255))
+                    if image.mode == "P":
+                        image = image.convert("RGBA")
+                    background.paste(image, mask=image.split()[-1] if image.mode == "RGBA" else None)
+                    image = background
+                image.save(output_path, format="JPEG", quality=95, optimize=True)
+            elif output_format.lower() == "png":
+                # PNG supports transparency
+                image.save(output_path, format="PNG", optimize=True)
+            elif output_format.lower() == "webp":
+                # WebP format
+                image.save(output_path, format="WEBP", quality=95, optimize=True)
+            elif output_format.lower() == "bmp":
+                # BMP format (convert to RGB)
+                if image.mode in ("RGBA", "LA", "P"):
+                    image = image.convert("RGB")
+                image.save(output_path, format="BMP")
+            elif output_format.lower() == "tiff":
+                # TIFF format
+                image.save(output_path, format="TIFF", quality=95)
+            else:
+                # Fallback to original format
+                logger.warning(f"Unsupported output format: {output_format}, using original")
+                image.save(output_path, quality=95, optimize=True)
+                
+            logger.debug(f"Saved image as {output_format.upper()}: {output_path}")
+            
+        except Exception as e:
+            logger.error(f"Failed to save image in format {output_format}: {str(e)}")
+            # Fallback to default save
+            image.save(output_path, quality=95, optimize=True)
+    
     def generate_augmented_filename(self, original_filename: str, config_id: str, 
                                   output_format: str = "jpg") -> str:
         """Generate filename for augmented image"""
         # Extract base name without extension
         base_name = Path(original_filename).stem
         
+        # Determine file extension
+        if output_format.lower() == "original":
+            # Keep original extension
+            original_ext = Path(original_filename).suffix.lstrip('.')
+            extension = original_ext if original_ext else "jpg"
+        else:
+            # Use specified format
+            extension = output_format.lower()
+            # Handle jpeg -> jpg
+            if extension == "jpeg":
+                extension = "jpg"
+        
         # Create augmented filename
-        augmented_filename = f"{base_name}_{config_id}.{output_format}"
+        augmented_filename = f"{base_name}_{config_id}.{extension}"
         return augmented_filename
     
     def _resolve_dual_value_parameters(self, transformation_config: Dict[str, Any]) -> Dict[str, Any]:
@@ -332,8 +393,8 @@ class ImageAugmentationEngine:
             augmented_filename = self.generate_augmented_filename(original_filename, config_id, output_format)
             output_path = self.output_base_dir / dataset_split / augmented_filename
             
-            # Save augmented image
-            augmented_image.save(output_path, quality=95, optimize=True)
+            # Save augmented image with proper format conversion
+            self._save_image_with_format(augmented_image, output_path, output_format)
             
             # Update annotations if provided
             updated_annotations = []
