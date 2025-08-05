@@ -15,6 +15,9 @@ import uuid
 # Import existing transformation service
 from api.services.image_transformer import ImageTransformer
 
+# Import dual-value transformation functions
+from core.transformation_config import is_dual_value_transformation, generate_auto_value
+
 logger = logging.getLogger(__name__)
 
 @dataclass
@@ -91,17 +94,65 @@ class ImageAugmentationEngine:
         augmented_filename = f"{base_name}_{config_id}.{output_format}"
         return augmented_filename
     
+    def _resolve_dual_value_parameters(self, transformation_config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Resolve dual-value parameters to single values for image processing
+        
+        Handles both formats:
+        1. Already resolved: {"brightness": {"adjustment": 20}}
+        2. Dual-value format: {"brightness": {"adjustment": {"user_value": 20, "auto_value": -15}}}
+        
+        Priority Order: User Value → Auto Value → Original Value
+        """
+        resolved_config = {}
+        
+        for tool_type, tool_params in transformation_config.items():
+            if not isinstance(tool_params, dict):
+                # Handle non-dict parameters (shouldn't happen, but be safe)
+                resolved_config[tool_type] = tool_params
+                continue
+            
+            resolved_params = {}
+            
+            for param_name, param_value in tool_params.items():
+                if isinstance(param_value, dict) and ('user_value' in param_value or 'auto_value' in param_value):
+                    # This is a dual-value parameter - resolve it
+                    if 'user_value' in param_value and param_value['user_value'] is not None:
+                        # Priority 1: Use user value
+                        resolved_params[param_name] = param_value['user_value']
+                        logger.debug(f"Resolved {tool_type}.{param_name}: user_value = {param_value['user_value']}")
+                    elif 'auto_value' in param_value and param_value['auto_value'] is not None:
+                        # Priority 2: Use auto value
+                        resolved_params[param_name] = param_value['auto_value']
+                        logger.debug(f"Resolved {tool_type}.{param_name}: auto_value = {param_value['auto_value']}")
+                    else:
+                        # Fallback: Use the dict as-is (shouldn't happen)
+                        resolved_params[param_name] = param_value
+                        logger.warning(f"Could not resolve dual-value for {tool_type}.{param_name}: {param_value}")
+                else:
+                    # This is already a resolved single value
+                    resolved_params[param_name] = param_value
+            
+            resolved_config[tool_type] = resolved_params
+        
+        logger.debug(f"Resolved transformation config: {resolved_config}")
+        return resolved_config
+    
     def apply_transformations_to_image(self, image: Image.Image, 
                                      transformation_config: Dict[str, Any]) -> Image.Image:
-        """Apply transformations using existing ImageTransformer service"""
+        """Apply transformations using existing ImageTransformer service with dual-value support"""
         try:
+            # Resolve dual-value parameters before applying transformations
+            resolved_config = self._resolve_dual_value_parameters(transformation_config)
+            
             # Use the existing ImageTransformer service
-            transformed_image = self.transformer.apply_transformations(image, transformation_config)
-            logger.debug(f"Applied transformations: {list(transformation_config.keys())}")
+            transformed_image = self.transformer.apply_transformations(image, resolved_config)
+            logger.debug(f"Applied transformations: {list(resolved_config.keys())}")
             return transformed_image
             
         except Exception as e:
             logger.error(f"Failed to apply transformations: {str(e)}")
+            logger.error(f"Transformation config: {transformation_config}")
             # Return original image if transformation fails
             return image
     
@@ -110,18 +161,21 @@ class ImageAugmentationEngine:
                                              original_dims: Tuple[int, int],
                                              new_dims: Tuple[int, int]) -> List[Union[BoundingBox, Polygon]]:
         """
-        Update annotations based on applied transformations
+        Update annotations based on applied transformations with dual-value support
         Phase 1: Basic annotation updates for common transformations
         """
         if not annotations:
             return []
+        
+        # Resolve dual-value parameters for annotation processing
+        resolved_config = self._resolve_dual_value_parameters(transformation_config)
         
         updated_annotations = []
         
         for annotation in annotations:
             try:
                 updated_annotation = self._transform_single_annotation(
-                    annotation, transformation_config, original_dims, new_dims
+                    annotation, resolved_config, original_dims, new_dims
                 )
                 if updated_annotation:
                     updated_annotations.append(updated_annotation)
@@ -247,11 +301,11 @@ class ImageAugmentationEngine:
                                output_format: str = "jpg",
                                annotations: Optional[List[Union[BoundingBox, Polygon]]] = None) -> AugmentationResult:
         """
-        Generate augmented image with updated annotations
+        Generate augmented image with updated annotations and dual-value support
         
         Args:
             image_path: Path to original image
-            transformation_config: Dictionary of transformations to apply
+            transformation_config: Dictionary of transformations to apply (supports dual-value format)
             config_id: Unique identifier for this configuration
             dataset_split: Dataset split (train/val/test)
             output_format: Output image format
@@ -261,10 +315,15 @@ class ImageAugmentationEngine:
             AugmentationResult with paths and updated annotations
         """
         try:
+            # Validate transformation config
+            if not transformation_config:
+                logger.warning(f"Empty transformation config for image: {image_path}")
+                transformation_config = {}
+            
             # Load original image
             original_image, original_dims = self.load_image_from_path(image_path)
             
-            # Apply transformations
+            # Apply transformations with dual-value support
             augmented_image = self.apply_transformations_to_image(original_image, transformation_config)
             augmented_dims = augmented_image.size
             
