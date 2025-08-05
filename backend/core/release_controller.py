@@ -7,6 +7,7 @@ import os
 import json
 import logging
 import uuid
+import shutil
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 from datetime import datetime
@@ -127,32 +128,87 @@ class ReleaseController:
             return []
     
     def get_dataset_images(self, dataset_ids: List[str]) -> List[Dict[str, Any]]:
-        """Get all images from specified datasets"""
+        """
+        Get all images from specified datasets with enhanced multi-dataset support
+        
+        Handles multiple dataset paths like:
+        - projects/gevis/dataset/animal/train/
+        - projects/gevis/dataset/car_dataset/train/
+        - projects/gevis/dataset/RAKESH/train/
+        """
         try:
+            # Get images from all specified datasets
             images = self.db.query(Image).filter(
                 Image.dataset_id.in_(dataset_ids),
                 Image.split_type == "dataset"  # Only get images in dataset section
             ).all()
             
+            # Also get dataset information for path handling
+            datasets = self.db.query(Dataset).filter(Dataset.id.in_(dataset_ids)).all()
+            dataset_info = {ds.id: ds for ds in datasets}
+            
             image_records = []
+            dataset_stats = {}
+            
             for image in images:
+                # Get dataset info
+                dataset = dataset_info.get(image.dataset_id)
+                dataset_name = dataset.name if dataset else f"dataset_{image.dataset_id}"
+                
+                # Track dataset statistics
+                if dataset_name not in dataset_stats:
+                    dataset_stats[dataset_name] = 0
+                dataset_stats[dataset_name] += 1
+                
                 record = {
                     "id": image.id,
                     "filename": image.filename,
                     "file_path": image.file_path,
                     "dataset_id": image.dataset_id,
+                    "dataset_name": dataset_name,
                     "split_section": image.split_section or "train",
                     "width": image.width,
-                    "height": image.height
+                    "height": image.height,
+                    "source_path": self._get_source_dataset_path(image.file_path, dataset_name)
                 }
                 image_records.append(record)
             
-            logger.info(f"Found {len(image_records)} images in datasets: {dataset_ids}")
+            logger.info(f"📊 MULTI-DATASET LOADING COMPLETE:")
+            logger.info(f"   Total images: {len(image_records)}")
+            for dataset_name, count in dataset_stats.items():
+                logger.info(f"   {dataset_name}: {count} images")
+            
             return image_records
             
         except Exception as e:
             logger.error(f"Failed to get dataset images: {str(e)}")
             return []
+    
+    def _get_source_dataset_path(self, file_path: str, dataset_name: str) -> str:
+        """
+        Extract source dataset path from file path
+        
+        Examples:
+        - projects/gevis/dataset/animal/train/image.jpg → projects/gevis/dataset/animal/
+        - projects/gevis/dataset/car_dataset/train/image.jpg → projects/gevis/dataset/car_dataset/
+        """
+        try:
+            path_parts = Path(file_path).parts
+            
+            # Find the dataset part in the path
+            if 'dataset' in path_parts:
+                dataset_idx = path_parts.index('dataset')
+                if dataset_idx + 1 < len(path_parts):
+                    # Return path up to and including the dataset folder
+                    source_parts = path_parts[:dataset_idx + 2]  # Include dataset/dataset_name
+                    return str(Path(*source_parts))
+            
+            # Fallback: use the directory containing the file
+            return str(Path(file_path).parent)
+            
+        except Exception as e:
+            logger.warning(f"Could not extract source path from {file_path}: {e}")
+            return str(Path(file_path).parent)
     
     def update_release_progress(self, release_id: str, **kwargs) -> None:
         """Update release progress"""
@@ -258,26 +314,60 @@ class ReleaseController:
             output_dir = f"backend/releases/{release_id}"
             self.augmentation_engine = create_augmentation_engine(output_dir)
             
-            # Prepare image paths and dataset splits
+            # Prepare image paths and dataset splits with multi-dataset support
             image_paths = []
             dataset_splits = {}
+            dataset_sources = {}  # Track source dataset for each image
+            
+            # Create staging directory for copied images
+            staging_dir = f"{output_dir}/staging"
+            os.makedirs(staging_dir, exist_ok=True)
+            
+            logger.info(f"🔄 COPYING IMAGES FROM MULTIPLE DATASETS:")
             
             for img_record in image_records:
-                # Convert relative path to absolute path
-                image_path = self._resolve_image_path(img_record["file_path"])
-                if os.path.exists(image_path):
-                    image_paths.append(image_path)
-                    dataset_splits[image_path] = img_record["split_section"]
-                else:
-                    logger.warning(f"Image not found: {image_path}")
+                # Get source image path
+                source_path = self._resolve_image_path(img_record["file_path"])
+                
+                if not os.path.exists(source_path):
+                    logger.warning(f"Source image not found: {source_path}")
+                    continue
+                
+                # Create unique filename to avoid conflicts between datasets
+                dataset_name = img_record["dataset_name"]
+                original_filename = img_record["filename"]
+                unique_filename = f"{dataset_name}_{original_filename}"
+                
+                # Copy image to staging directory (not move!)
+                staging_path = os.path.join(staging_dir, unique_filename)
+                try:
+                    shutil.copy2(source_path, staging_path)
+                    logger.debug(f"   Copied: {source_path} → {staging_path}")
+                    
+                    # Add to processing lists
+                    image_paths.append(staging_path)
+                    dataset_splits[staging_path] = img_record["split_section"]
+                    dataset_sources[staging_path] = {
+                        "dataset_name": dataset_name,
+                        "dataset_id": img_record["dataset_id"],
+                        "source_path": img_record["source_path"],
+                        "original_filename": original_filename
+                    }
+                    
+                except Exception as e:
+                    logger.error(f"Failed to copy {source_path}: {e}")
+                    continue
             
-            # Process all images
+            logger.info(f"✅ Successfully copied {len(image_paths)} images from {len(set(img['dataset_name'] for img in image_records))} datasets")
+            
+            # Process all images with multi-dataset support
             all_results = process_release_images(
                 image_paths=image_paths,
                 transformation_configs=transformation_configs,
                 dataset_splits=dataset_splits,
                 output_dir=output_dir,
-                output_format=config.output_format
+                output_format=config.output_format,
+                dataset_sources=dataset_sources  # Pass dataset source information
             )
             
             # Count generated images
@@ -326,6 +416,9 @@ class ReleaseController:
                 release.task_type = config.task_type if hasattr(config, 'task_type') else 'object_detection'
                 self.db.commit()
             
+            # Cleanup staging directory (images were copied, not moved)
+            self._cleanup_staging_directory(staging_dir)
+            
             # Update final progress
             self.update_release_progress(
                 release_id,
@@ -335,7 +428,20 @@ class ReleaseController:
                 completed_at=datetime.utcnow()
             )
             
-            logger.info(f"Successfully generated release {release_id} with export at {export_path}")
+            # Log multi-dataset statistics
+            dataset_counts = {}
+            for img_record in image_records:
+                dataset_name = img_record["dataset_name"]
+                dataset_counts[dataset_name] = dataset_counts.get(dataset_name, 0) + 1
+            
+            logger.info(f"✅ MULTI-DATASET RELEASE GENERATION COMPLETED: {release_id}")
+            logger.info(f"   📊 Dataset breakdown:")
+            for dataset_name, count in dataset_counts.items():
+                logger.info(f"      {dataset_name}: {count} images")
+            logger.info(f"   📈 Total original images: {len(image_paths)}")
+            logger.info(f"   🎨 Total generated images: {total_generated}")
+            logger.info(f"   📁 Export path: {export_path}")
+            
             return release_id
             
         except Exception as e:
@@ -351,6 +457,19 @@ class ReleaseController:
                 )
             
             raise
+    
+    def _cleanup_staging_directory(self, staging_dir: str) -> None:
+        """
+        Clean up staging directory after processing
+        
+        This removes the temporary copied images since we copied (not moved) them
+        """
+        try:
+            if os.path.exists(staging_dir):
+                shutil.rmtree(staging_dir)
+                logger.info(f"🧹 Cleaned up staging directory: {staging_dir}")
+        except Exception as e:
+            logger.warning(f"Failed to cleanup staging directory {staging_dir}: {e}")
     
     def _resolve_image_path(self, relative_path: str) -> str:
         """Resolve relative image path to absolute path"""

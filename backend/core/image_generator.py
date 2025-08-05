@@ -431,9 +431,10 @@ def process_release_images(image_paths: List[str],
                          transformation_configs: Dict[str, List[Dict[str, Any]]],
                          dataset_splits: Dict[str, str],
                          output_dir: str = "augmented",
-                         output_format: str = "jpg") -> Dict[str, List[AugmentationResult]]:
+                         output_format: str = "jpg",
+                         dataset_sources: Dict[str, Dict[str, Any]] = None) -> Dict[str, List[AugmentationResult]]:
     """
-    Process multiple images for release generation
+    Process multiple images for release generation with multi-dataset support
     
     Args:
         image_paths: List of image file paths
@@ -441,22 +442,37 @@ def process_release_images(image_paths: List[str],
         dataset_splits: Dict mapping image_path to dataset split (train/val/test)
         output_dir: Output directory for augmented images
         output_format: Output image format
+        dataset_sources: Dict mapping image_path to dataset source information
         
     Returns:
         Dictionary mapping image_path to list of AugmentationResult objects
     """
     engine = create_augmentation_engine(output_dir)
     all_results = {}
+    dataset_sources = dataset_sources or {}
+    
+    logger.info(f"🎨 PROCESSING {len(image_paths)} IMAGES FROM MULTIPLE DATASETS")
     
     for image_path in image_paths:
         try:
-            # Get image ID from path (you might need to adjust this based on your ID scheme)
-            image_id = Path(image_path).stem
+            # Get image ID from path - handle multi-dataset naming
+            image_filename = Path(image_path).stem
+            
+            # Extract original image ID (remove dataset prefix if present)
+            if dataset_sources and image_path in dataset_sources:
+                source_info = dataset_sources[image_path]
+                original_filename = source_info.get("original_filename", image_filename)
+                image_id = Path(original_filename).stem
+                dataset_name = source_info.get("dataset_name", "unknown")
+                logger.debug(f"   Processing {dataset_name}/{original_filename}")
+            else:
+                image_id = image_filename
+                dataset_name = "unknown"
             
             # Get transformation configs for this image
             configs = transformation_configs.get(image_id, [])
             if not configs:
-                logger.warning(f"No transformation configs found for image: {image_id}")
+                logger.warning(f"No transformation configs found for image: {image_id} (from {dataset_name})")
                 continue
             
             # Get dataset split for this image
